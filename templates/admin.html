@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Админка</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-4xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold">Админ-панель</h1>
+      <a href="/logout" class="text-red-600 hover:underline">Выйти</a>
+    </div>
+
+    <!-- Добавление курса -->
+    <form method="POST" action="/admin/course" class="bg-white p-6 rounded shadow mb-6">
+      <input name="title" placeholder="Название курса" required class="w-full p-2 border mb-3">
+      <textarea name="description" placeholder="Описание" class="w-full p-2 border mb-3"></textarea>
+      <input name="link" placeholder="Ссылка (YouTube, Zoom и т.д.)" type="url" class="w-full p-2 border mb-3">
+      <button class="bg-green-500 text-white px-4 py-2 rounded">Добавить курс</button>
+    </form>
+
+    <!-- Список курсов -->
+    <div class="space-y-4">
+      {{range .Courses}}
+      <div class="bg-white p-4 rounded shadow">
+        <form hx-post="/admin/course/edit/{{.ID}}" hx-target="closest div" hx-swap="outerHTML">
+          <input type="text" name="title" value="{{.Title}}" class="font-bold w-full mb-1 p-1 border">
+          <textarea name="description" class="text-gray-600 w-full p-1 border mb-1">{{.Desc}}</textarea>
+          <input type="url" name="link" value="{{.Link}}" placeholder="Ссылка" class="w-full p-1 border mb-2">
+          <div class="flex gap-2">
+            <button class="bg-blue-500 text-white px-3 py-1 rounded text-sm">Сохранить</button>
+            <button hx-post="/admin/course/delete/{{.ID}}" hx-target="closest div" hx-swap="outerHTML"
+                    class="bg-red-500 text-white px-3 py-1 rounded text-sm"
+                    hx-confirm="Удалить курс?">Удалить</button>
+            <a href="/course/{{.ID}}" class="bg-purple-600 text-white px-3 py-1 rounded text-sm">
+              Открыть курс
+            </a>
+          </div>
+        </form>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</body>
+</html>

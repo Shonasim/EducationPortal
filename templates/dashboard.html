@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Личный кабинет</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex justify-between items-center mb-8">
+      <h1 class="text-3xl font-bold">Личный кабинет</h1>
+      <a href="/" class="text-red-600 hover:underline">Выйти</a>
+    </div>
+
+    <!-- МОИ КУРСЫ -->
+    <div class="mb-10">
+      <h2 class="text-2xl font-semibold mb-4 text-green-700">Мои курсы</h2>
+      {{if not .MyCourses}}
+        <p class="text-gray-500 italic">Вы ещё не записались ни на один курс.</p>
+      {{else}}
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {{range .MyCourses}}
+            <div class="bg-green-50 border border-green-200 p-5 rounded-lg shadow-sm">
+            <h3 class="text-lg font-bold text-green-800">{{.Title}}</h3>
+            <div class="mt-3 flex gap-2">
+                <a href="/course/{{.ID}}" class="bg-green-600 text-white px-4 py-1.5 rounded text-sm hover:bg-green-700">
+                Начать курс
+                </a>
+                <form hx-post="/unenroll/{{.ID}}" hx-target="closest div" hx-swap="outerHTML">
+                <button class="text-red-600 text-sm hover:underline">Отменить</button>
+                </form>
+            </div>
+            </div>
+        {{end}}
+        </div>
+      {{end}}
+    </div>
+
+    <!-- ДОСТУПНЫЕ КУРСЫ -->
+    <div>
+      <h2 class="text-2xl font-semibold mb-4 text-blue-700">Доступные курсы</h2>
+      {{if not .AvailableCourses}}
+        <p class="text-gray-500 italic">Нет доступных курсов.</p>
+      {{else}}
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {{range .AvailableCourses}}
+          <div class="bg-white p-5 rounded-lg shadow hover:shadow-md transition">
+            <h3 class="text-lg font-bold">{{.Title}}</h3>
+            <button 
+              hx-post="/enroll/{{.ID}}" 
+              hx-target="closest div" 
+              hx-swap="outerHTML"
+              class="mt-3 bg-blue-500 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-600">
+              Записаться
+            </button>
+          </div>
+          {{end}}
+        </div>
+      {{end}}
+    </div>
+  </div>
+</body>
+</html>

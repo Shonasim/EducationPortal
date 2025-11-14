@@ -1,0 +1,12 @@
+<div class="bg-white p-4 rounded shadow">
+  <form hx-post="/admin/course/edit/{{.ID}}" hx-target="closest div" hx-swap="outerHTML">
+    <input type="text" name="title" value="{{.Title}}" class="font-bold w-full mb-1 p-1 border">
+    <textarea name="description" class="text-gray-600 w-full p-1 border mb-2">{{.Desc}}</textarea>
+    <div class="flex gap-2">
+      <button class="bg-blue-500 text-white px-3 py-1 rounded text-sm">Сохранить</button>
+      <button hx-post="/admin/course/delete/{{.ID}}" hx-target="closest div" hx-swap="outerHTML"
+              class="bg-red-500 text-white px-3 py-1 rounded text-sm"
+              hx-confirm="Удалить курс?">Удалить</button>
+    </div>
+  </form>
+</div>
