@@ -2,8 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"html/template"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -15,14 +19,26 @@ var db *sql.DB
 var tpl *template.Template
 
 func main() {
-	// === БД ===
+	// === Выводим путь ===
+	wd, _ := os.Getwd()
+	fmt.Printf("Запуск из директории: %s\n", wd)
+	fmt.Println("Попытка открыть/создать БД: ./edu.db")
+
+	// === Открываем БД с проверкой ===
 	var err error
-	db, err = sql.Open("sqlite3", "./edu.db")
+	dbPath := "./edu.db"
+	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
-		panic(err)
+		log.Fatalf("ОШИБКА: Не удалось открыть БД: %v", err)
 	}
 	defer db.Close()
 
+	// === Проверяем, можем ли писать в файл ===
+	if err := testDBWrite(dbPath); err != nil {
+		log.Fatalf("ОШИБКА: Нет прав на запись в директорию! %v", err)
+	}
+
+	// === Инициализация БД ===
 	initDB()
 
 	// === Шаблоны ===
@@ -55,53 +71,98 @@ func main() {
 	r.POST("/admin/course/edit/:id", authAdmin, editCourse)
 	r.POST("/admin/course/delete/:id", authAdmin, deleteCourse)
 
-	r.Run(":8080")
+	// === Запуск сервера ===
+	fmt.Println("Сервер запускается на http://localhost:8080")
+	fmt.Println("Если появится окно Windows — нажмите «Разрешить доступ»")
+	fmt.Println("После этого откройте браузер: http://localhost:8080")
+
+	// log.Fatal — покажет ошибку, если порт занят или заблокирован
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("СЕРВЕР НЕ ЗАПУСТИЛСЯ: %v", err)
+	}
 }
 
-// === Инициализация БД ===
+// === Проверка прав на запись ===
+func testDBWrite(path string) error {
+	absPath := path
+	if !filepath.IsAbs(path) {
+		wd, _ := os.Getwd()
+		absPath = filepath.Join(wd, path)
+	}
+	fmt.Printf("Проверка записи: %s\n", absPath)
+
+	f, err := os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		return fmt.Errorf("не могу создать файл БД: %v", err)
+	}
+	f.Close()
+	fmt.Println("Проверка записи пройдена")
+	return nil
+}
+
+// === Инициализация БД с проверкой ошибок ===
 func initDB() {
-	// Пользователи
-	db.Exec(`CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		email TEXT UNIQUE,
-		password TEXT,
-		name TEXT,
-		role TEXT DEFAULT 'student'
-	)`)
+	fmt.Println("Инициализация таблиц...")
 
-	// Курсы (с ссылкой)
-	db.Exec(`CREATE TABLE IF NOT EXISTS courses (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		title TEXT,
-		description TEXT,
-		link TEXT
-	)`)
+	tables := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email TEXT UNIQUE,
+			password TEXT,
+			name TEXT,
+			role TEXT DEFAULT 'student'
+		)`,
+		`CREATE TABLE IF NOT EXISTS courses (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT,
+			description TEXT,
+			link TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS lessons (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			course_id INTEGER,
+			title TEXT,
+			content TEXT,
+			order_num INTEGER,
+			FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS enrollments (
+			user_id INTEGER,
+			course_id INTEGER,
+			PRIMARY KEY (user_id, course_id)
+		)`,
+	}
 
-	// Уроки
-	db.Exec(`CREATE TABLE IF NOT EXISTS lessons (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		course_id INTEGER,
-		title TEXT,
-		content TEXT,
-		order_num INTEGER,
-		FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
-	)`)
-
-	// Записи
-	db.Exec(`CREATE TABLE IF NOT EXISTS enrollments (
-		user_id INTEGER,
-		course_id INTEGER,
-		PRIMARY KEY (user_id, course_id)
-	)`)
+	for _, sql := range tables {
+		if _, err := db.Exec(sql); err != nil {
+			log.Fatalf("ОШИБКА создания таблицы:\nSQL: %s\nОшибка: %v", sql, err)
+		}
+	}
 
 	// Админ по умолчанию
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", "admin@edu.com").Scan(&count)
-	if count == 0 {
-		hash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), 14)
-		db.Exec("INSERT INTO users (email, password, name, role) VALUES (?, ?, ?, ?)",
-			"admin@edu.com", string(hash), "Админ", "admin")
+	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", "admin@edu.com").Scan(&count)
+	if err != nil {
+		log.Fatalf("ОШИБКА проверки админа: %v", err)
 	}
+	if count == 0 {
+		hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), 14)
+		if err != nil {
+			log.Fatalf("ОШИБКА хеширования пароля: %v", err)
+		}
+		_, err = db.Exec("INSERT INTO users (email, password, name, role) VALUES (?, ?, ?, ?)",
+			"admin@edu.com", string(hash), "Админ", "admin")
+		if err != nil {
+			log.Fatalf("ОШИБКА создания админа: %v", err)
+		}
+		fmt.Println("Создан администратор:")
+		fmt.Println("   Логин: admin@edu.com")
+		fmt.Println("   Пароль: admin123")
+	} else {
+		fmt.Println("Администратор уже существует")
+	}
+
+	fmt.Println("База данных успешно инициализирована")
 }
 
 // === Аутентификация ===
@@ -120,8 +181,8 @@ func authAdmin(c *gin.Context) {
 		return
 	}
 	var role string
-	db.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
-	if role != "admin" {
+	err := db.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
+	if err != nil || role != "admin" {
 		c.String(http.StatusForbidden, "Доступ запрещён")
 		c.Abort()
 		return
@@ -139,8 +200,11 @@ func getUserID(c *gin.Context) int {
 }
 
 func isAdmin(userID int) bool {
+	if userID == 0 {
+		return false
+	}
 	var role string
-	db.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
+	_ = db.QueryRow("SELECT role FROM users WHERE id = ?", userID).Scan(&role)
 	return role == "admin"
 }
 
@@ -159,9 +223,18 @@ func register(c *gin.Context) {
 	password := c.PostForm("password")
 	name := c.PostForm("name")
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if email == "" || password == "" || name == "" {
+		c.Redirect(http.StatusSeeOther, "/register?error=Заполните+все+поля")
+		return
+	}
 
-	_, err := db.Exec("INSERT INTO users (email, password, name) VALUES (?, ?, ?)", email, string(hash), name)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		c.Redirect(http.StatusSeeOther, "/register?error=Ошибка+серверa")
+		return
+	}
+
+	_, err = db.Exec("INSERT INTO users (email, password, name) VALUES (?, ?, ?)", email, string(hash), name)
 	if err != nil {
 		c.Redirect(http.StatusSeeOther, "/register?error=Email+уже+занят")
 		return
@@ -199,12 +272,18 @@ func logout(c *gin.Context) {
 func dashboard(c *gin.Context) {
 	userID := getUserID(c)
 
-	// Имя
 	var name string
-	db.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&name)
+	if err := db.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&name); err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка загрузки профиля")
+		return
+	}
 
 	// Все курсы
-	rows, _ := db.Query("SELECT id, title FROM courses")
+	rows, err := db.Query("SELECT id, title FROM courses")
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка загрузки курсов")
+		return
+	}
 	defer rows.Close()
 	var allCourses []map[string]any
 	for rows.Next() {
@@ -217,7 +296,11 @@ func dashboard(c *gin.Context) {
 	// Записанные
 	var myCourses []map[string]any
 	var enrolledIDs []int
-	rows2, _ := db.Query("SELECT course_id FROM enrollments WHERE user_id = ?", userID)
+	rows2, err := db.Query("SELECT course_id FROM enrollments WHERE user_id = ?", userID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка загрузки записей")
+		return
+	}
 	defer rows2.Close()
 	for rows2.Next() {
 		var cid int
@@ -288,8 +371,11 @@ func coursePage(c *gin.Context) {
 		return
 	}
 
-	// Уроки
-	rows, _ := db.Query("SELECT id, title, content FROM lessons WHERE course_id = ? ORDER BY order_num", courseID)
+	rows, err := db.Query("SELECT id, title, content FROM lessons WHERE course_id = ? ORDER BY order_num", courseID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка загрузки уроков")
+		return
+	}
 	defer rows.Close()
 	var lessons []map[string]any
 	for rows.Next() {
@@ -324,7 +410,11 @@ func addLesson(c *gin.Context) {
 
 // === Админка ===
 func adminPanel(c *gin.Context) {
-	rows, _ := db.Query("SELECT id, title, description, link FROM courses")
+	rows, err := db.Query("SELECT id, title, description, link FROM courses")
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка загрузки курсов")
+		return
+	}
 	defer rows.Close()
 	var courses []map[string]any
 	for rows.Next() {
@@ -346,6 +436,10 @@ func addCourse(c *gin.Context) {
 	title := c.PostForm("title")
 	desc := c.PostForm("description")
 	link := c.PostForm("link")
+	if title == "" {
+		c.Redirect(http.StatusSeeOther, "/admin")
+		return
+	}
 	db.Exec("INSERT INTO courses (title, description, link) VALUES (?, ?, ?)", title, desc, link)
 	c.Redirect(http.StatusSeeOther, "/admin")
 }
@@ -363,5 +457,5 @@ func deleteCourse(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	db.Exec("DELETE FROM courses WHERE id = ?", id)
 	db.Exec("DELETE FROM enrollments WHERE course_id = ?", id)
-	c.String(http.StatusOK, "")
+	c.String(http.StatusOK, "OK")
 }
